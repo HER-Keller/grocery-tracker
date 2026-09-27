@@ -470,7 +470,8 @@
 
   let formCtx = null; // { id?, tags?, catTouched, locTouched }
 
-  function openForm(item = {}, { title, hint, tags } = {}) {
+  // focusName: only when the user is typing a new item by hand — otherwise don't pop the keyboard.
+  function openForm(item = {}, { title, hint, tags, focusName = false } = {}) {
     const f = el.itemForm;
     const isNew = !item.id || !state.items.some((x) => x.id === item.id);
     formCtx = { id: isNew ? null : item.id, tags: tags || null, catTouched: !!item.category, locTouched: !!item.location, image: item.image || '' };
@@ -491,7 +492,7 @@
     el.deleteBtn.hidden = isNew;
     autoFill();
     if (!el.itemDlg.open) el.itemDlg.showModal();
-    if (!item.name) setTimeout(() => f.name.focus(), 50);
+    if (focusName) setTimeout(() => f.name.focus(), 50);
   }
 
   function autoFill() {
@@ -845,6 +846,22 @@
 
   /* ---------- Wiring ---------- */
 
+  // Freeze the page behind open dialogs (iOS Safari ignores overflow:hidden on body alone).
+  let lockedY = null;
+  function syncScrollLock() {
+    const anyOpen = !!$('dialog[open]');
+    if (anyOpen && lockedY === null) {
+      lockedY = window.scrollY;
+      Object.assign(document.body.style, { position: 'fixed', top: `-${lockedY}px`, left: '0', right: '0' });
+    } else if (!anyOpen && lockedY !== null) {
+      Object.assign(document.body.style, { position: '', top: '', left: '', right: '' });
+      window.scrollTo(0, lockedY);
+      lockedY = null;
+    }
+  }
+  const lockObserver = new MutationObserver(syncScrollLock);
+  $$('dialog').forEach((d) => lockObserver.observe(d, { attributes: true, attributeFilter: ['open'] }));
+
   $$('dialog').forEach((d) => {
     d.addEventListener('click', (e) => {
       if (e.target === d && d !== el.passDlg) d.close(); // backdrop click
@@ -855,7 +872,7 @@
   el.passDlg.addEventListener('cancel', (e) => { if (!state.pass) e.preventDefault(); });
 
   $('#scanBtn').addEventListener('click', openScanner);
-  $('#addBtn').addEventListener('click', () => openForm({ qty: 1, name: state.query && !/^\d{8,14}$/.test(state.query) ? state.query : '' }));
+  $('#addBtn').addEventListener('click', () => openForm({ qty: 1, name: state.query && !/^\d{8,14}$/.test(state.query) ? state.query : '' }, { focusName: true }));
   $('#menuBtn').addEventListener('click', () => el.menuDlg.showModal());
   el.syncBtn.addEventListener('click', () => (REMOTE ? refresh() : toast('Local demo mode — data is only on this device.')));
 

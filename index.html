@@ -44,7 +44,7 @@
 
   <!-- Menu -->
   <dialog id="menuDlg" class="sheet">
-    <h2>Menu</h2>
+    <h2 tabindex="-1" autofocus>Menu</h2>
     <button class="btn block secondary" data-action="refresh">Sync now</button>
     <button class="btn block secondary" data-action="share">Share with household…</button>
     <button class="btn block secondary" data-action="export">Export CSV</button>
@@ -71,7 +71,7 @@
 
   <!-- Scanner -->
   <dialog id="scanDlg" class="sheet scan">
-    <div id="modeSeg" class="seg" role="radiogroup" aria-label="Scan mode">
+    <div id="modeSeg" class="seg" role="radiogroup" aria-label="Scan mode" tabindex="-1" autofocus>
       <button type="button" data-mode="ask" role="radio">Ask</button>
       <button type="button" data-mode="in" role="radio">Scan in ＋1</button>
       <button type="button" data-mode="out" role="radio">Scan out −1</button>
@@ -91,7 +91,7 @@
 
   <!-- Scan match (existing item) -->
   <dialog id="matchDlg" class="sheet">
-    <div id="matchBody"></div>
+    <div id="matchBody" tabindex="-1" autofocus></div>
     <div class="row gap">
       <button class="btn ghost grow" data-action="new">＋ New location</button>
       <button class="btn secondary grow" data-action="scan">Scan next</button>
@@ -102,7 +102,7 @@
   <!-- Item form -->
   <dialog id="itemDlg" class="sheet">
     <form id="itemForm" method="dialog">
-      <h2 id="itemTitle">Add item</h2>
+      <h2 id="itemTitle" tabindex="-1" autofocus>Add item</h2>
       <p id="itemHint" class="muted small"></p>
       <div class="product-head">
         <img id="itemImg" alt="" hidden />
