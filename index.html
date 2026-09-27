@@ -1,0 +1,163 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>Grocery Tracker</title>
+  <meta name="theme-color" content="#0f6fb8" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-title" content="Groceries" />
+  <link rel="manifest" href="manifest.webmanifest" />
+  <link rel="icon" href="icon.svg" type="image/svg+xml" />
+  <link rel="apple-touch-icon" href="icon-180.png" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <header class="top">
+    <div class="top-row">
+      <h1>Grocery Tracker</h1>
+      <span id="count" class="count"></span>
+      <button id="syncBtn" class="sync" title="Sync status — tap to refresh"><span class="dot"></span><span id="syncText">Local</span></button>
+      <button id="menuBtn" class="icon-btn" aria-label="More options">⋯</button>
+    </div>
+    <div class="search-wrap">
+      <input id="search" type="search" placeholder="Search items, brands, locations…" autocomplete="off" enterkeyhint="search" />
+    </div>
+    <div class="filters">
+      <div id="locChips" class="chips" role="tablist" aria-label="Filter"></div>
+      <select id="sort" aria-label="Sort by">
+        <option value="category">By category</option>
+        <option value="location">By location</option>
+        <option value="expires">Expiring first</option>
+        <option value="name">A–Z</option>
+        <option value="recent">Recently updated</option>
+      </select>
+    </div>
+  </header>
+
+  <main id="list" class="list" aria-live="polite"></main>
+
+  <div class="fab-bar">
+    <button id="addBtn" class="btn secondary">＋ Add</button>
+    <button id="scanBtn" class="btn primary">Scan barcode</button>
+  </div>
+
+  <!-- Menu -->
+  <dialog id="menuDlg" class="sheet">
+    <h2>Menu</h2>
+    <button class="btn block secondary" data-action="refresh">Sync now</button>
+    <button class="btn block secondary" data-action="share">Share with household…</button>
+    <button class="btn block secondary" data-action="export">Export CSV</button>
+    <button class="btn block secondary" data-action="passcode">Change passcode</button>
+    <button class="btn block secondary" data-action="reset" id="resetBtn">Reset demo data</button>
+    <button class="btn block ghost" data-action="close">Close</button>
+  </dialog>
+
+  <!-- Passcode -->
+  <dialog id="passDlg" class="sheet">
+    <form id="passForm" method="dialog">
+      <h2>Household passcode</h2>
+      <p class="muted small">Enter the passcode set in the Google Sheet script. You only need to do this once per device.</p>
+      <label>Passcode
+        <input name="pass" type="password" autocomplete="current-password" required />
+      </label>
+      <p id="passErr" class="err small" hidden></p>
+      <div class="row gap actions">
+        <span class="grow"></span>
+        <button class="btn primary">Unlock</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- Scanner -->
+  <dialog id="scanDlg" class="sheet scan">
+    <div id="modeSeg" class="seg" role="radiogroup" aria-label="Scan mode">
+      <button type="button" data-mode="ask" role="radio">Ask</button>
+      <button type="button" data-mode="in" role="radio">Scan in ＋1</button>
+      <button type="button" data-mode="out" role="radio">Scan out −1</button>
+    </div>
+    <div class="video-wrap">
+      <video id="video" playsinline muted></video>
+      <div class="reticle"></div>
+      <div id="flash" class="flash"></div>
+    </div>
+    <p id="scanStatus" class="muted center small">Starting camera…</p>
+    <form id="manualForm" class="row gap">
+      <input id="manualCode" inputmode="numeric" placeholder="Or type the barcode" autocomplete="off" />
+      <button class="btn secondary">Look up</button>
+    </form>
+    <button class="btn block ghost" data-action="close">Done</button>
+  </dialog>
+
+  <!-- Scan match (existing item) -->
+  <dialog id="matchDlg" class="sheet">
+    <div id="matchBody"></div>
+    <div class="row gap">
+      <button class="btn ghost grow" data-action="new">＋ New location</button>
+      <button class="btn secondary grow" data-action="scan">Scan next</button>
+      <button class="btn primary grow" data-action="close">Done</button>
+    </div>
+  </dialog>
+
+  <!-- Item form -->
+  <dialog id="itemDlg" class="sheet">
+    <form id="itemForm" method="dialog">
+      <h2 id="itemTitle">Add item</h2>
+      <p id="itemHint" class="muted small"></p>
+      <div class="product-head">
+        <img id="itemImg" alt="" hidden />
+        <label class="grow">Name
+          <input name="name" required autocomplete="off" />
+        </label>
+      </div>
+      <div class="grid2">
+        <label>Quantity
+          <input name="qty" type="number" step="any" min="0" inputmode="decimal" required />
+        </label>
+        <label>Unit
+          <input name="unit" list="unitList" placeholder="bags, pounds…" autocomplete="off" />
+        </label>
+      </div>
+      <div class="grid2">
+        <label>Category <span id="autoCat" class="tag" hidden>auto</span>
+          <input name="category" list="catList" autocomplete="off" />
+        </label>
+        <label>Location <span id="autoLoc" class="tag" hidden>auto</span>
+          <input name="location" list="locList" autocomplete="off" />
+        </label>
+      </div>
+      <div class="grid2">
+        <label>Expires
+          <input name="expires" type="date" />
+        </label>
+        <label>Brand
+          <input name="brand" autocomplete="off" />
+        </label>
+      </div>
+      <div class="grid2">
+        <label>Barcode
+          <input name="barcode" inputmode="numeric" autocomplete="off" />
+        </label>
+        <label>Notes
+          <input name="notes" autocomplete="off" />
+        </label>
+      </div>
+      <div class="row gap actions">
+        <button type="button" id="deleteBtn" class="btn danger">Delete</button>
+        <span class="grow"></span>
+        <button type="button" class="btn ghost" data-action="close">Cancel</button>
+        <button type="submit" class="btn primary">Save</button>
+      </div>
+    </form>
+  </dialog>
+
+  <datalist id="catList"></datalist>
+  <datalist id="locList"></datalist>
+  <datalist id="unitList"></datalist>
+
+  <div id="toast" class="toast" role="status"></div>
+
+  <script src="config.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
