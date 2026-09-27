@@ -259,3 +259,11 @@ h1 { white-space: nowrap; }
   h1 { font-size: 18px; }
   .count { font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
 }
+
+/* Camera overlay buttons */
+.cam-btns { position: absolute; right: 10px; bottom: 10px; display: flex; gap: 8px; }
+.cam-btn {
+  width: 44px; height: 44px; border-radius: 50%; border: 0; font-size: 20px; cursor: pointer;
+  background: rgba(0, 0, 0, 0.55); color: #fff;
+}
+.cam-btn[aria-pressed="true"] { background: #ffd54a; color: #000; }

@@ -3,14 +3,14 @@
 
   /* ---------- Config & constants ---------- */
 
-  const APP_VERSION = '5';
+  const APP_VERSION = '7';
   const API = (window.GT_CONFIG && window.GT_CONFIG.apiUrl || '').trim();
   const REMOTE = !!API;
   const KEY = {
     items: 'gt.items', barcodes: 'gt.barcodes', outbox: 'gt.outbox',
     pass: 'gt.pass', sort: 'gt.sort', mode: 'gt.scanMode',
   };
-  const ZXING_URL = 'https://cdn.jsdelivr.net/npm/@zxing/browser@0.1.5/umd/zxing-browser.min.js';
+  const ZXING_WASM_URL = 'https://cdn.jsdelivr.net/npm/zxing-wasm@3.1.3/dist/es/reader/index.js/+esm';
   const POLL_MS = 15000;
   const SOON_DAYS = 14;
 
@@ -79,7 +79,7 @@
     list: $('#list'), count: $('#count'), search: $('#search'), chips: $('#locChips'), sort: $('#sort'),
     syncBtn: $('#syncBtn'), syncText: $('#syncText'), toast: $('#toast'),
     menuDlg: $('#menuDlg'), passDlg: $('#passDlg'), passForm: $('#passForm'), passErr: $('#passErr'),
-    scanDlg: $('#scanDlg'), video: $('#video'), scanStatus: $('#scanStatus'), flash: $('#flash'),
+    scanDlg: $('#scanDlg'), video: $('#video'), torchBtn: $('#torchBtn'), flipBtn: $('#flipBtn'), scanStatus: $('#scanStatus'), flash: $('#flash'),
     manualForm: $('#manualForm'), manualCode: $('#manualCode'), modeSeg: $('#modeSeg'),
     matchDlg: $('#matchDlg'), matchBody: $('#matchBody'),
     itemDlg: $('#itemDlg'), itemForm: $('#itemForm'), itemTitle: $('#itemTitle'), itemHint: $('#itemHint'),
@@ -604,8 +604,11 @@
   /* ---------- Scanning ---------- */
 
   let scanner = null; // { stop() }
+  let scanSession = 0;
   let lastScan = { code: '', at: 0 };
-  let zxingLoading = null;
+  let wasmDetector = null;
+  const SCAN_FORMATS = ['ean_13', 'ean_8', 'upc_a', 'upc_e', 'code_128', 'code_39', 'itf', 'qr_code'];
+  const BAD_CAMERA = /ultra|wide|tele|depth|macro|infrared|ir\b|front/i;
 
   function setMode(mode) {
     state.scanMode = mode;
@@ -618,14 +621,75 @@
     }[mode];
   }
 
-  function loadZxing() {
-    if (window.ZXingBrowser) return Promise.resolve();
-    zxingLoading ||= new Promise((resolve, reject) => {
-      const s = document.createElement('script');
-      s.src = ZXING_URL; s.onload = resolve; s.onerror = () => reject(new Error('Could not load the barcode reader.'));
-      document.head.appendChild(s);
-    });
-    return zxingLoading;
+  // ZXing-C++ compiled to WebAssembly: a few ms per frame, works on every browser (incl. iPhone).
+  // Each frame is tried with several binarizers — the step that turns the photo into black/white
+  // bars — because blur and uneven freezer lighting defeat any single one.
+  const ZXING_FORMATS = ['EAN13', 'EAN8', 'UPCA', 'UPCE', 'Code128', 'Code39', 'ITF', 'QRCode'];
+  const BINARIZERS = ['LocalAverage', 'FixedThreshold', 'GlobalHistogram'];
+  function loadWasmDetector() {
+    wasmDetector ||= import(ZXING_WASM_URL)
+      .then(async (z) => {
+        if (z.prepareZXingModule) await z.prepareZXingModule({ fireImmediately: true });
+        return {
+          async detect(canvas) {
+            const img = canvas.getContext('2d', { willReadFrequently: true }).getImageData(0, 0, canvas.width, canvas.height);
+            for (const binarizer of BINARIZERS) {
+              const res = await z.readBarcodes(img, { formats: ZXING_FORMATS, tryHarder: true, maxNumberOfSymbols: 1, binarizer });
+              const hit = res.find((r) => r.isValid && r.text);
+              if (hit) return [{ rawValue: hit.text }];
+            }
+            return [];
+          },
+        };
+      })
+      .catch((err) => { wasmDetector = null; throw err; });
+    return wasmDetector;
+  }
+
+  // Use every decoder available and alternate between them frame by frame:
+  // Android's built-in (ML Kit) reader is great with blur, ZXing is great with small/dense codes.
+  async function getDetectors() {
+    const list = [];
+    if ('BarcodeDetector' in window) {
+      try {
+        const supported = await BarcodeDetector.getSupportedFormats();
+        if (supported.includes('ean_13')) list.push({ name: 'built-in', d: new BarcodeDetector({ formats: SCAN_FORMATS.filter((f) => supported.includes(f)) }) });
+      } catch { /* not really supported */ }
+    }
+    try { list.push({ name: 'zxing', d: await loadWasmDetector() }); } catch (err) { console.warn('WASM scanner failed to load', err); }
+    return list;
+  }
+
+  async function openCamera() {
+    const base = { width: { ideal: 1920 }, height: { ideal: 1080 }, frameRate: { ideal: 30 } };
+    const saved = store.get('gt.cameraId', '');
+    let stream = null;
+    if (saved) {
+      try { stream = await navigator.mediaDevices.getUserMedia({ video: { ...base, deviceId: { exact: saved } }, audio: false }); } catch { store.set('gt.cameraId', ''); }
+    }
+    stream ||= await navigator.mediaDevices.getUserMedia({ video: { ...base, facingMode: { ideal: 'environment' } }, audio: false });
+    return stream;
+  }
+
+  async function backCameras() {
+    try {
+      const devs = (await navigator.mediaDevices.enumerateDevices()).filter((d) => d.kind === 'videoinput');
+      const back = devs.filter((d) => /back|rear|environment/i.test(d.label));
+      const list = back.length ? back : devs;
+      // Main camera first: ultra-wide/tele lenses often can't focus up close.
+      return [...list.filter((d) => !BAD_CAMERA.test(d.label)), ...list.filter((d) => BAD_CAMERA.test(d.label))];
+    } catch { return []; }
+  }
+
+  async function tuneTrack(track) {
+    const caps = track.getCapabilities ? track.getCapabilities() : {};
+    const adv = {};
+    if (caps.focusMode && caps.focusMode.includes('continuous')) adv.focusMode = 'continuous';
+    if (caps.exposureMode && caps.exposureMode.includes('continuous')) adv.exposureMode = 'continuous';
+    // A little zoom lets you hold the phone farther back, where the lens can actually focus.
+    if (caps.zoom && caps.zoom.max >= 2) adv.zoom = Math.min(1.8, caps.zoom.max);
+    if (Object.keys(adv).length) { try { await track.applyConstraints({ advanced: [adv] }); } catch { /* ignore */ } }
+    return caps;
   }
 
   async function openScanner() {
@@ -642,56 +706,85 @@
 
   async function startCamera() {
     stopCamera();
+    const session = ++scanSession;
+    const stale = () => session !== scanSession || !el.scanDlg.open;
+    el.torchBtn.hidden = true;
+    el.flipBtn.hidden = true;
     if (!window.isSecureContext || !navigator.mediaDevices?.getUserMedia) {
       el.scanStatus.textContent = 'The camera needs a secure (https) page. Type the barcode below instead.';
       return;
     }
+    let stream = null;
     try {
-      let native = false;
-      if ('BarcodeDetector' in window) {
-        try { native = (await BarcodeDetector.getSupportedFormats()).includes('ean_13'); } catch { native = false; }
-      }
-      if (native) {
-        const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 } }, audio: false });
-        el.video.srcObject = stream;
-        await el.video.play();
-        const detector = new BarcodeDetector({ formats: ['ean_13', 'ean_8', 'upc_a', 'upc_e', 'code_128', 'code_39', 'qr_code'] });
-        let alive = true;
-        const tick = async () => {
-          if (!alive) return;
+      const [detectors, s] = await Promise.all([getDetectors(), openCamera()]);
+      stream = s;
+      if (stale()) { stream.getTracks().forEach((t) => t.stop()); return; }
+      if (!detectors.length) throw new Error('no_detector');
+
+      const track = stream.getVideoTracks()[0];
+      const caps = await tuneTrack(track);
+      el.video.srcObject = stream;
+      await el.video.play();
+      if (stale()) { stream.getTracks().forEach((t) => t.stop()); return; }
+
+      // Torch + camera switch buttons, when the phone supports them.
+      let torchOn = false;
+      el.torchBtn.hidden = !caps.torch;
+      el.torchBtn.setAttribute('aria-pressed', 'false');
+      el.torchBtn.onclick = async () => {
+        torchOn = !torchOn;
+        try { await track.applyConstraints({ advanced: [{ torch: torchOn }] }); } catch { torchOn = false; }
+        el.torchBtn.setAttribute('aria-pressed', String(torchOn));
+      };
+      const cams = await backCameras();
+      el.flipBtn.hidden = cams.length < 2;
+      el.flipBtn.onclick = () => {
+        const cur = track.getSettings().deviceId;
+        const i = cams.findIndex((c) => c.deviceId === cur);
+        store.set('gt.cameraId', cams[(i + 1) % cams.length].deviceId);
+        startCamera();
+      };
+
+      // Decode only the band around the on-screen guide: less to search, so each frame is faster.
+      const canvas = document.createElement('canvas');
+      const ctx = canvas.getContext('2d', { willReadFrequently: true });
+      let alive = true;
+      let turn = 0;
+      const tick = async () => {
+        if (!alive) return;
+        const vw = el.video.videoWidth, vh = el.video.videoHeight;
+        if (vw && vh) {
+          const cw = Math.round(vw * 0.9), ch = Math.round(vh * 0.6);
+          const scale = Math.min(1, 1280 / cw);
+          canvas.width = Math.round(cw * scale); canvas.height = Math.round(ch * scale);
+          ctx.drawImage(el.video, (vw - cw) / 2, (vh - ch) / 2, cw, ch, 0, 0, canvas.width, canvas.height);
+          const { d } = detectors[turn++ % detectors.length];
           try {
-            if (el.video.readyState >= 2) {
-              const codes = await detector.detect(el.video);
-              if (codes.length) onDetected(codes[0].rawValue);
-            }
-          } catch { /* frame not ready */ }
-          if (alive) setTimeout(tick, 140);
-        };
-        tick();
-        scanner = { stop() { alive = false; stream.getTracks().forEach((t) => t.stop()); el.video.srcObject = null; } };
-      } else {
-        el.scanStatus.textContent = 'Loading scanner…';
-        await loadZxing();
-        if (!el.scanDlg.open) return;
-        const reader = new window.ZXingBrowser.BrowserMultiFormatReader();
-        const controls = await reader.decodeFromConstraints(
-          { video: { facingMode: { ideal: 'environment' } }, audio: false }, el.video,
-          (result) => { if (result) onDetected(result.getText()); },
-        );
-        scanner = { stop() { controls.stop(); } };
-      }
+            const codes = await d.detect(canvas);
+            const hit = codes.find((c) => c.rawValue);
+            if (hit && alive) onDetected(hit.rawValue);
+          } catch { /* skip frame */ }
+        }
+        if (alive) (el.video.requestVideoFrameCallback ? el.video.requestVideoFrameCallback(() => tick()) : setTimeout(tick, 40));
+      };
+      tick();
+      scanner = { stop() { alive = false; torchOn = false; stream.getTracks().forEach((t) => t.stop()); el.video.srcObject = null; } };
       setMode(state.scanMode);
-      if (!el.scanDlg.open) stopCamera();
+      el.scanStatus.textContent += ` (${detectors.map((x) => x.name).join(' + ')})`;
     } catch (err) {
       console.warn(err);
+      if (stream) stream.getTracks().forEach((t) => t.stop());
       el.scanStatus.textContent = err && err.name === 'NotAllowedError'
         ? 'Camera access was blocked. Allow it in your browser settings, or type the barcode below.'
-        : 'Couldn’t start the camera. Type the barcode below instead.';
+        : 'Couldn’t start the scanner. Type the barcode below instead.';
     }
   }
 
   function stopCamera() {
+    scanSession++;
     if (scanner) { try { scanner.stop(); } catch { /* already stopped */ } scanner = null; }
+    el.torchBtn.hidden = true;
+    el.flipBtn.hidden = true;
   }
 
   function onDetected(raw) {
@@ -948,6 +1041,7 @@
   }
 
   $('#appVersion').textContent = 'Version ' + APP_VERSION;
+  setTimeout(() => loadWasmDetector().catch(() => {}), 1500);
   checkForUpdate();
   document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') checkForUpdate(); });
 

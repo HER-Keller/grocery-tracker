@@ -10,7 +10,7 @@
   <link rel="manifest" href="manifest.webmanifest" />
   <link rel="icon" href="icon.svg" type="image/svg+xml" />
   <link rel="apple-touch-icon" href="icon-180.png" />
-  <link rel="stylesheet" href="styles.css?v=5" />
+  <link rel="stylesheet" href="styles.css?v=7" />
 </head>
 <body>
   <header class="top">
@@ -81,6 +81,10 @@
       <video id="video" playsinline muted></video>
       <div class="reticle"></div>
       <div id="flash" class="flash"></div>
+      <div class="cam-btns">
+        <button type="button" id="flipBtn" class="cam-btn" aria-label="Switch camera" hidden>⟲</button>
+        <button type="button" id="torchBtn" class="cam-btn" aria-label="Flashlight" aria-pressed="false" hidden>🔦</button>
+      </div>
     </div>
     <p id="scanStatus" class="muted center small">Starting camera…</p>
     <form id="manualForm" class="row gap">
@@ -158,7 +162,7 @@
 
   <div id="toast" class="toast" role="status"></div>
 
-  <script src="config.js?v=5"></script>
-  <script src="app.js?v=5"></script>
+  <script src="config.js?v=7"></script>
+  <script src="app.js?v=7"></script>
 </body>
 </html>
