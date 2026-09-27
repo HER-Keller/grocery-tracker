@@ -261,12 +261,17 @@
     return data;
   }
 
-  function handleSyncError(err) {
+  function handleSyncError(err, { duringList = false } = {}) {
     if (err.code === 'bad_passcode' || err.code === 'passcode_not_set') {
       setSync('error', 'Locked');
       askPasscode(err.code === 'passcode_not_set'
         ? 'The sheet script still has the default passcode. Set PASSCODE in Code.gs and redeploy.'
         : 'That passcode didn’t work.');
+      return;
+    }
+    if (err.code && duringList) {
+      setSync('error', 'Sheet error');
+      toast('Couldn’t load from the sheet: ' + err.code);
       return;
     }
     if (err.code) { // server-side error for a specific op — drop it so the queue can't jam
@@ -316,7 +321,7 @@
       render();
       setSync('ok', 'Synced');
     } catch (err) {
-      handleSyncError(err);
+      handleSyncError(err, { duringList: true });
     }
   }
 

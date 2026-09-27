@@ -16,6 +16,9 @@
 
 const PASSCODE = 'CHANGE-ME';
 
+// The Google Sheet this app uses (from its URL). Works whether or not the script is attached to the sheet.
+const SHEET_ID = '1vrfLIawyNbHr4Eb0ZBXTRNbvwYt9pEzMEa_S5YFd-JU';
+
 const INV = 'Inventory';
 const BAR = 'Barcodes';
 // Column order in the Inventory tab. Don't reorder columns in the sheet.
@@ -147,9 +150,17 @@ function upsertBarcode_(entry) {
 
 /* ---------- Helpers ---------- */
 
+function ss_() {
+  return SpreadsheetApp.openById(SHEET_ID);
+}
+
 function sheet_(name) {
-  const sh = SpreadsheetApp.getActive().getSheetByName(name);
-  if (!sh) throw new Error('Missing tab "' + name + '". Run setup() first.');
+  let sh = ss_().getSheetByName(name);
+  if (!sh) {
+    setup(); // first run: create the tabs and import the original list
+    sh = ss_().getSheetByName(name);
+  }
+  if (!sh) throw new Error('Missing tab "' + name + '"');
   return sh;
 }
 
@@ -171,7 +182,7 @@ function json_(obj) {
 /* ---------- One-time setup / migration ---------- */
 
 function setup() {
-  const ss = SpreadsheetApp.getActive();
+  const ss = ss_();
 
   let bar = ss.getSheetByName(BAR);
   if (!bar) {
