@@ -3,6 +3,7 @@
 
   /* ---------- Config & constants ---------- */
 
+  const APP_VERSION = '5';
   const API = (window.GT_CONFIG && window.GT_CONFIG.apiUrl || '').trim();
   const REMOTE = !!API;
   const KEY = {
@@ -329,7 +330,6 @@
     el.passErr.hidden = !msg;
     el.passErr.textContent = msg || '';
     if (!el.passDlg.open) el.passDlg.showModal();
-    setTimeout(() => el.passForm.pass.focus(), 50);
   }
 
   el.passForm.addEventListener('submit', (e) => {
@@ -470,8 +470,8 @@
 
   let formCtx = null; // { id?, tags?, catTouched, locTouched }
 
-  // focusName: only when the user is typing a new item by hand — otherwise don't pop the keyboard.
-  function openForm(item = {}, { title, hint, tags, focusName = false } = {}) {
+  // Never auto-focus a field: on phones that pops the keyboard over the form.
+  function openForm(item = {}, { title, hint, tags } = {}) {
     const f = el.itemForm;
     const isNew = !item.id || !state.items.some((x) => x.id === item.id);
     formCtx = { id: isNew ? null : item.id, tags: tags || null, catTouched: !!item.category, locTouched: !!item.location, image: item.image || '' };
@@ -492,7 +492,6 @@
     el.deleteBtn.hidden = isNew;
     autoFill();
     if (!el.itemDlg.open) el.itemDlg.showModal();
-    if (focusName) setTimeout(() => f.name.focus(), 50);
   }
 
   function autoFill() {
@@ -599,7 +598,6 @@
         : `Found${p.size ? ` (${p.size})` : ''}. Check the details, then save.`;
     } else {
       el.itemHint.textContent = 'Not in the product database. Name it once and it will be recognized next time.';
-      el.itemForm.name.focus();
     }
   }
 
@@ -788,7 +786,6 @@
       openForm({ ...rest, qty: 1 }, { title: 'Add to another location' });
       formCtx.locTouched = false;
       el.itemForm.location.value = '';
-      el.itemForm.location.focus();
     }
   });
 
@@ -872,7 +869,7 @@
   el.passDlg.addEventListener('cancel', (e) => { if (!state.pass) e.preventDefault(); });
 
   $('#scanBtn').addEventListener('click', openScanner);
-  $('#addBtn').addEventListener('click', () => openForm({ qty: 1, name: state.query && !/^\d{8,14}$/.test(state.query) ? state.query : '' }, { focusName: true }));
+  $('#addBtn').addEventListener('click', () => openForm({ qty: 1, name: state.query && !/^\d{8,14}$/.test(state.query) ? state.query : '' }));
   $('#menuBtn').addEventListener('click', () => el.menuDlg.showModal());
   el.syncBtn.addEventListener('click', () => (REMOTE ? refresh() : toast('Local demo mode — data is only on this device.')));
 
@@ -904,6 +901,22 @@
     else openForm(state.items.find((x) => x.id === row.dataset.id));
   });
 
+  /* ---------- Self-update ---------- */
+
+  // Home-screen web apps can hold on to old files for a long time. Check a tiny
+  // uncached version file and reload once when a newer build is published.
+  async function checkForUpdate() {
+    try {
+      const res = await fetch('version.json?t=' + Date.now(), { cache: 'no-store' });
+      if (!res.ok) return;
+      const { version } = await res.json();
+      if (version && String(version) !== APP_VERSION && sessionStorage.getItem('gt.reloadedFor') !== String(version)) {
+        sessionStorage.setItem('gt.reloadedFor', String(version));
+        location.reload();
+      }
+    } catch { /* offline — try again next time */ }
+  }
+
   /* ---------- Boot ---------- */
 
   const join = new URLSearchParams(location.hash.slice(1)).get('join');
@@ -933,6 +946,10 @@
   } else {
     setSync('local', 'Demo');
   }
+
+  $('#appVersion').textContent = 'Version ' + APP_VERSION;
+  checkForUpdate();
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') checkForUpdate(); });
 
   // Test hooks for local debugging.
   window.GT = { state, categorize, parseQty, normalizeCode, stepDelta };

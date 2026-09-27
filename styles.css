@@ -150,6 +150,9 @@ dialog.sheet {
   max-height: calc(100dvh - 24px);
 }
 dialog.sheet { overscroll-behavior: contain; }
+/* Belt and braces with the JS lock in app.js: stop the page scrolling behind any open dialog. */
+html:has(dialog[open]), html:has(dialog[open]) body { overflow: hidden; overscroll-behavior: none; }
+dialog::backdrop { touch-action: none; }
 dialog.sheet :focus-visible:not(input, button, select) { outline: none; }
 [autofocus][tabindex="-1"]:focus { outline: none; }
 dialog::backdrop { background: rgba(5, 15, 25, 0.5); }
